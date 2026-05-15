@@ -136,13 +136,9 @@ Field-name selection:
 self.model_dump(by_alias=True, mode="python")
 ```
 
-`model_validate_avro()` decodes with Avro, then validates with:
+`model_validate_avro()` decodes Avro wire names, translates them to Pydantic validation keys, then validates with normal Pydantic validation.
 
-```python
-cls.model_validate(decoded, by_alias=True, by_name=False)
-```
-
-So Avro payloads use wire names only, not Python field names.
+So Avro payloads still use Avro field names on the wire, including serialization aliases.
 
 ## Record names
 

@@ -33,5 +33,5 @@ class AvroBaseModel(BaseModel):
         parsed_schema = get_parsed_schema(cls)
         decoded = decode_avro(parsed_schema, data)
         return cls.model_validate(
-            from_avro_record(cls, decoded), by_alias=True, by_name=False
+            from_avro_record(cls, decoded), by_alias=True, by_name=True
         )

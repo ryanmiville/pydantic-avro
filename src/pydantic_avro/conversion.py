@@ -30,13 +30,19 @@ def to_avro_record(model_cls: type[Any], record: dict[str, Any]) -> dict[str, An
 
 def from_avro_record(model_cls: type[Any], record: dict[str, Any]) -> dict[str, Any]:
     return {
-        avro_field_name(python_name, field_info): from_avro_value(
+        validation_field_name(python_name, field_info): from_avro_value(
             field_info.annotation,
             record[avro_field_name(python_name, field_info)],
         )
         for python_name, field_info in model_cls.model_fields.items()
         if avro_field_name(python_name, field_info) in record
     }
+
+
+def validation_field_name(python_name: str, field_info: Any) -> str:
+    if isinstance(field_info.alias, str):
+        return field_info.alias
+    return python_name
 
 
 def to_avro_value(annotation: Any, value: Any) -> Any:

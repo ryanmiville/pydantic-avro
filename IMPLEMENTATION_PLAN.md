@@ -209,10 +209,10 @@ record = self.model_dump(by_alias=True, mode="python")
 ### `model_validate_avro()`
 
 - Decode bytes with the class schema using `fastavro.schemaless_reader`.
-- Then validate with:
+- Translate decoded Avro wire names to Pydantic validation keys, then validate with:
 
 ```python
-return cls.model_validate(decoded, by_alias=True, by_name=False)
+return cls.model_validate(translated_decoded, by_alias=True, by_name=True)
 ```
 
 - Wrap fastavro decode errors in `AvroDecodeError`.

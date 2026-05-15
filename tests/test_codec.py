@@ -44,6 +44,15 @@ def test_round_trips_alias_field() -> None:
     assert User.model_validate_avro(user.model_dump_avro()).user_id == 1
 
 
+def test_round_trips_serialization_alias_field() -> None:
+    class User(AvroBaseModel):
+        user_id: int = Field(serialization_alias="userId")
+
+    user = User(user_id=1)
+
+    assert User.model_validate_avro(user.model_dump_avro()).user_id == 1
+
+
 def test_round_trips_enum_values() -> None:
     class Color(str, Enum):
         RED = "RED"

@@ -51,7 +51,7 @@ _Avoid_: Wrapping Pydantic ValidationError
 - An **Avro Schema** is derived from Pydantic `model_fields` and resolved annotations in v0, not converted from JSON Schema or generated from CoreSchema.
 - `model_avro_schema()` returns a raw dictionary; parsed encoder/decoder schemas are internal cache details.
 - An **Avro Field Name** is the key used in the Avro schema and Avro message payload.
-- Decoded **Avro Message** data is validated by alias-only wire names, not Python field names.
+- Decoded **Avro Message** data comes from Avro wire names and is translated to Pydantic validation keys before normal validation.
 - Decoded **Avro Message** data uses normal Pydantic validation, not forced strict mode.
 
 ## Example dialogue
