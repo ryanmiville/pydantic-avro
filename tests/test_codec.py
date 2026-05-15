@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any
 
 import pytest
 from pydantic import Field, ValidationError, field_validator
@@ -82,8 +83,9 @@ def test_decode_type_error_is_decode_error() -> None:
     class User(AvroBaseModel):
         id: int
 
+    bad_data: Any = "not bytes"
     with pytest.raises(AvroDecodeError):
-        User.model_validate_avro("not bytes")  # type: ignore[arg-type]
+        User.model_validate_avro(bad_data)
 
 
 def test_pydantic_validation_error_is_not_wrapped() -> None:
