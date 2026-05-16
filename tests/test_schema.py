@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal
+from typing import Literal, cast
 
 import pytest
 from pydantic import Field
@@ -172,11 +172,31 @@ def test_rejects_unsupported_union() -> None:
         Bad.model_avro_schema()
 
 
-def test_rejects_default_factory() -> None:
-    class Bad(AvroBaseModel):
+def test_builtin_list_default_factory_emits_array_default() -> None:
+    class Example(AvroBaseModel):
         values: list[int] = Field(default_factory=list)
 
-    with pytest.raises(AvroSchemaGenerationError, match="default_factory"):
+    values = field(Example.model_avro_schema(), "values")
+
+    assert values["type"] == {"type": "array", "items": "long"}
+    assert values["default"] == []
+
+
+def test_builtin_dict_default_factory_emits_map_default() -> None:
+    class Example(AvroBaseModel):
+        values: dict[str, int] = Field(default_factory=dict)
+
+    values = field(Example.model_avro_schema(), "values")
+
+    assert values["type"] == {"type": "map", "values": "long"}
+    assert values["default"] == {}
+
+
+def test_rejects_unsupported_default_factory() -> None:
+    class Bad(AvroBaseModel):
+        values: list[int] = Field(default_factory=lambda: [])
+
+    with pytest.raises(AvroSchemaGenerationError, match="default_factory.*values"):
         Bad.model_avro_schema()
 
 
@@ -188,12 +208,92 @@ def test_rejects_non_string_map_key() -> None:
         Bad.model_avro_schema()
 
 
-def test_rejects_complex_default() -> None:
-    class Bad(AvroBaseModel):
-        values: list[int] = []
+def test_list_default_emits_array_default() -> None:
+    class Example(AvroBaseModel):
+        values: list[int] = [1, 2]
 
-    with pytest.raises(AvroSchemaGenerationError, match="default"):
+    values = field(Example.model_avro_schema(), "values")
+
+    assert values["default"] == [1, 2]
+
+
+def test_dict_default_emits_map_default() -> None:
+    class Example(AvroBaseModel):
+        values: dict[str, str] = {"x": "y"}
+
+    values = field(Example.model_avro_schema(), "values")
+
+    assert values["default"] == {"x": "y"}
+
+
+def test_collection_defaults_convert_enum_and_nullable_values() -> None:
+    class Color(str, Enum):
+        RED = "RED"
+
+    class Example(AvroBaseModel):
+        colors: list[Color] = [Color.RED]
+        values: dict[str, int | None] = {"x": None}
+
+    schema = Example.model_avro_schema()
+
+    assert field(schema, "colors")["default"] == ["RED"]
+    assert field(schema, "values")["default"] == {"x": None}
+
+
+def test_rejects_map_default_with_non_string_keys() -> None:
+    class Bad(AvroBaseModel):
+        values: dict[str, int] = cast(dict[str, int], {1: 2})
+
+    with pytest.raises(AvroSchemaGenerationError, match="values.*non-string"):
         Bad.model_avro_schema()
+
+
+def test_rejects_collection_default_with_wrong_runtime_type() -> None:
+    class BadList(AvroBaseModel):
+        values: list[int] = cast(list[int], "oops")
+
+    class BadDict(AvroBaseModel):
+        values: dict[str, int] = cast(dict[str, int], "oops")
+
+    with pytest.raises(AvroSchemaGenerationError, match="values.*default"):
+        BadList.model_avro_schema()
+    with pytest.raises(AvroSchemaGenerationError, match="values.*default"):
+        BadDict.model_avro_schema()
+
+
+def test_nullable_list_default_factory_orders_array_first() -> None:
+    class Example(AvroBaseModel):
+        values: list[int] | None = Field(default_factory=list)
+
+    values = field(Example.model_avro_schema(), "values")
+
+    assert values["type"] == [{"type": "array", "items": "long"}, "null"]
+    assert values["default"] == []
+
+
+def test_rejects_nested_record_default() -> None:
+    class Child(AvroBaseModel):
+        id: int
+
+    class Parent(AvroBaseModel):
+        child: Child = Child(id=1)
+
+    with pytest.raises(AvroSchemaGenerationError, match="child.*default"):
+        Parent.model_avro_schema()
+
+
+def test_empty_list_of_records_default_is_supported() -> None:
+    class Child(AvroBaseModel):
+        id: int
+
+    class Parent(AvroBaseModel):
+        children: list[Child] = Field(default_factory=list)
+
+    children = field(Parent.model_avro_schema(), "children")
+
+    assert children["type"]["type"] == "array"
+    assert children["type"]["items"]["type"] == "record"
+    assert children["default"] == []
 
 
 def test_model_avro_schema_returns_fresh_dict() -> None:

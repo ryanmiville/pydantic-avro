@@ -107,13 +107,8 @@ class SchemaGenerator:
         record_name: str,
         record_namespace: str,
     ) -> dict[str, Any]:
-        if field_info.default_factory is not None:
-            raise AvroSchemaGenerationError(
-                f"Field '{python_name}' uses default_factory, which is not supported in v0"
-            )
-
         avro_name = avro_field_name(python_name, field_info)
-        default = PydanticUndefined if field_info.is_required() else field_info.default
+        default = avro_field_default(field_info, path=avro_name)
         avro_type = self.avro_type(
             field_info.annotation,
             path=avro_name,
@@ -272,6 +267,47 @@ class SchemaGenerator:
         return schema
 
     def avro_default(self, annotation: Any, default: Any, *, path: str) -> Any:
+        annotation = unwrap_annotated(annotation)
+        origin = get_origin(annotation)
+        if origin in (Union, types.UnionType):
+            if default is None:
+                return None
+            non_null = [
+                arg
+                for arg in get_args(annotation)
+                if unwrap_annotated(arg) is not _NONE_TYPE
+            ]
+            if len(non_null) != 1:
+                raise AvroSchemaGenerationError(
+                    f"Field '{path}' has an unsupported Avro default value in v0"
+                )
+            return self.avro_default(non_null[0], default, path=path)
+        if origin is list:
+            if not isinstance(default, list):
+                raise AvroSchemaGenerationError(
+                    f"Field '{path}' has an unsupported Avro default value in v0"
+                )
+            (item_type,) = self.single_type_arg(annotation, path=path, container="list")
+            return [
+                self.avro_default(item_type, item, path=f"{path}[]")
+                for item in default
+            ]
+        if origin is dict:
+            if not isinstance(default, dict):
+                raise AvroSchemaGenerationError(
+                    f"Field '{path}' has an unsupported Avro default value in v0"
+                )
+            key_type, value_type = self.type_args(
+                annotation, path=path, container="dict", count=2
+            )
+            if key_type is not str or any(not isinstance(key, str) for key in default):
+                raise AvroSchemaGenerationError(
+                    f"Field '{path}' has a map default with non-string keys, which Avro does not support"
+                )
+            return {
+                key: self.avro_default(value_type, value, path=f"{path}{{}}")
+                for key, value in default.items()
+            }
         if isinstance(default, Enum):
             return self.enum_symbol(default, path=path)
         if default is None or isinstance(default, bool | int | float | str):
@@ -330,6 +366,19 @@ class SchemaGenerator:
             raise AvroSchemaGenerationError(
                 f"Field '{path}' uses a Pydantic model that does not inherit AvroBaseModel"
             )
+
+
+def avro_field_default(field_info: Any, *, path: str) -> Any:
+    if field_info.default_factory is None:
+        return PydanticUndefined if field_info.is_required() else field_info.default
+    if field_info.default_factory is list:
+        return []
+    if field_info.default_factory is dict:
+        return {}
+    raise AvroSchemaGenerationError(
+        f"Unsupported default_factory for field '{path}'; "
+        "only built-in list and dict are supported in v0"
+    )
 
 
 def avro_field_name(python_name: str, field_info: Any) -> str:

@@ -63,6 +63,19 @@ See `examples/user.py` for a runnable smoke test.
 - nested `AvroBaseModel` records
 - nullable `T | None`
 
+## Supported defaults
+
+- primitive defaults (`None`, `bool`, `int`, `float`, `str`)
+- enum and string `Literal[...]` field defaults
+- representable collection defaults, recursively:
+  - `list[T] = []` or `[value, ...]`
+  - `dict[str, T] = {}` or `{"key": value, ...}`
+- builtin empty factories only:
+  - `Field(default_factory=list)` emits Avro default `[]`
+  - `Field(default_factory=dict)` emits Avro default `{}`
+
+Arbitrary factories are not called during schema generation.
+
 ## Out of scope for now
 
 - Avro object container files
@@ -73,6 +86,7 @@ See `examples/user.py` for a runnable smoke test.
 - recursive models
 - decimal/date/time logical types
 - `Literal[...]` inside containers or with non-string / invalid Avro enum symbols
+- nested record defaults, except empty collections of records
 
 Unsupported schema features raise `AvroSchemaGenerationError`.
 
