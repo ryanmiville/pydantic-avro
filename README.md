@@ -59,6 +59,7 @@ See `examples/user.py` for a runnable smoke test.
 - `list[T]`
 - `dict[str, T]`
 - `Enum`
+- string `Literal[...]` as Avro enum fields
 - nested `AvroBaseModel` records
 - nullable `T | None`
 
@@ -71,6 +72,7 @@ See `examples/user.py` for a runnable smoke test.
 - arbitrary unions beyond `T | None`
 - recursive models
 - decimal/date/time logical types
+- `Literal[...]` inside containers or with non-string / invalid Avro enum symbols
 
 Unsupported schema features raise `AvroSchemaGenerationError`.
 

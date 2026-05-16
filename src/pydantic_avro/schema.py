@@ -6,7 +6,7 @@ import re
 import types
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Annotated, Any, Union, get_args, get_origin
+from typing import Annotated, Any, Literal, Union, get_args, get_origin
 
 from fastavro import parse_schema
 from pydantic_core import PydanticUndefined
@@ -35,9 +35,30 @@ def generate_avro_schema(model_cls: type[Any]) -> dict[str, Any]:
     return schema
 
 
+@dataclass(frozen=True)
+class PythonNamedType:
+    type_: type[Any]
+
+
+@dataclass(frozen=True)
+class LiteralEnumNamedType:
+    symbols: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class LiteralEnumSpec:
+    full_name: str
+    name: str
+    namespace: str
+    symbols: tuple[str, ...]
+
+
+NamedTypeOwner = PythonNamedType | LiteralEnumNamedType
+
+
 @dataclass
 class SchemaGenerator:
-    named_types: dict[str, type[Any]] = field(default_factory=dict)
+    named_types: dict[str, NamedTypeOwner] = field(default_factory=dict)
     emitted_names: set[str] = field(default_factory=set)
     visiting: set[type[Any]] = field(default_factory=set)
 
@@ -66,14 +87,26 @@ class SchemaGenerator:
             if doc:
                 schema["doc"] = doc
             schema["fields"] = [
-                self.field_schema(field_name, field_info)
+                self.field_schema(
+                    field_name,
+                    field_info,
+                    record_name=name,
+                    record_namespace=namespace,
+                )
                 for field_name, field_info in model_cls.model_fields.items()
             ]
             return schema
         finally:
             self.visiting.remove(model_cls)
 
-    def field_schema(self, python_name: str, field_info: Any) -> dict[str, Any]:
+    def field_schema(
+        self,
+        python_name: str,
+        field_info: Any,
+        *,
+        record_name: str,
+        record_namespace: str,
+    ) -> dict[str, Any]:
         if field_info.default_factory is not None:
             raise AvroSchemaGenerationError(
                 f"Field '{python_name}' uses default_factory, which is not supported in v0"
@@ -81,7 +114,13 @@ class SchemaGenerator:
 
         avro_name = avro_field_name(python_name, field_info)
         default = PydanticUndefined if field_info.is_required() else field_info.default
-        avro_type = self.avro_type(field_info.annotation, path=avro_name, default=default)
+        avro_type = self.avro_type(
+            field_info.annotation,
+            path=avro_name,
+            default=default,
+            literal_enum_name=f"{record_name}_{avro_name}_Enum",
+            literal_enum_namespace=record_namespace,
+        )
         result: dict[str, Any] = {"name": avro_name, "type": avro_type}
 
         description = getattr(field_info, "description", None)
@@ -94,7 +133,13 @@ class SchemaGenerator:
         return result
 
     def avro_type(
-        self, annotation: Any, *, path: str, default: Any = PydanticUndefined
+        self,
+        annotation: Any,
+        *,
+        path: str,
+        default: Any = PydanticUndefined,
+        literal_enum_name: str | None = None,
+        literal_enum_namespace: str = "",
     ) -> AvroType:
         annotation = unwrap_annotated(annotation)
         origin = get_origin(annotation)
@@ -112,8 +157,21 @@ class SchemaGenerator:
         if annotation is bytes:
             return "bytes"
 
+        if origin is Literal:
+            return self.literal_enum_schema(
+                annotation,
+                path=path,
+                name=literal_enum_name,
+                namespace=literal_enum_namespace,
+            )
         if origin in (Union, types.UnionType):
-            return self.union_type(annotation, path=path, default=default)
+            return self.union_type(
+                annotation,
+                path=path,
+                default=default,
+                literal_enum_name=literal_enum_name,
+                literal_enum_namespace=literal_enum_namespace,
+            )
         if origin is list:
             (item_type,) = self.single_type_arg(annotation, path=path, container="list")
             return {
@@ -144,7 +202,15 @@ class SchemaGenerator:
             f"Unsupported Avro type for field '{path}': {detail} is not supported in v0"
         )
 
-    def union_type(self, annotation: Any, *, path: str, default: Any) -> list[Any]:
+    def union_type(
+        self,
+        annotation: Any,
+        *,
+        path: str,
+        default: Any,
+        literal_enum_name: str | None,
+        literal_enum_namespace: str,
+    ) -> list[Any]:
         args = tuple(unwrap_annotated(arg) for arg in get_args(annotation))
         non_null = [arg for arg in args if arg is not _NONE_TYPE]
         has_null = len(non_null) != len(args)
@@ -152,10 +218,42 @@ class SchemaGenerator:
             raise AvroSchemaGenerationError(
                 f"Field '{path}' uses an unsupported union; only nullable T | None is supported in v0"
             )
-        avro_non_null = self.avro_type(non_null[0], path=path)
+        avro_non_null = self.avro_type(
+            non_null[0],
+            path=path,
+            literal_enum_name=literal_enum_name,
+            literal_enum_namespace=literal_enum_namespace,
+        )
         if default is not PydanticUndefined and default is not None:
             return [avro_non_null, "null"]
         return ["null", avro_non_null]
+
+    def literal_enum_schema(
+        self, annotation: Any, *, path: str, name: str | None, namespace: str
+    ) -> AvroType:
+        if name is None:
+            raise AvroSchemaGenerationError(
+                f"Field '{path}' uses Literal inside a container, which is not supported in v0"
+            )
+        spec = parse_literal_enum(
+            annotation,
+            enum_name=name,
+            namespace=namespace,
+            path=path,
+        )
+        self._claim_literal_enum(spec, path)
+        if spec.full_name in self.emitted_names:
+            return spec.full_name
+
+        self.emitted_names.add(spec.full_name)
+        schema: dict[str, Any] = {
+            "type": "enum",
+            "name": spec.name,
+            "symbols": list(spec.symbols),
+        }
+        if spec.namespace:
+            schema["namespace"] = spec.namespace
+        return schema
 
     def enum_schema(self, enum_cls: type[Enum], *, path: str) -> AvroType:
         name = enum_cls.__name__
@@ -210,12 +308,22 @@ class SchemaGenerator:
         return args
 
     def _claim_name(self, full_name: str, type_: type[Any], path: str) -> None:
+        owner = PythonNamedType(type_)
         existing = self.named_types.get(full_name)
-        if existing is not None and existing is not type_:
+        if existing is not None and existing != owner:
             raise AvroSchemaGenerationError(
-                f"Field '{path}' reuses Avro name '{full_name}' for multiple Python types"
+                f"Field '{path}' reuses Avro name '{full_name}' for multiple types"
             )
-        self.named_types[full_name] = type_
+        self.named_types[full_name] = owner
+
+    def _claim_literal_enum(self, spec: LiteralEnumSpec, path: str) -> None:
+        owner = LiteralEnumNamedType(spec.symbols)
+        existing = self.named_types.get(spec.full_name)
+        if existing is not None and existing != owner:
+            raise AvroSchemaGenerationError(
+                f"Field '{path}' reuses Avro name '{spec.full_name}' for multiple types"
+            )
+        self.named_types[spec.full_name] = owner
 
     def _ensure_avro_model(self, model_cls: type[Any], path: str) -> None:
         if not is_avro_model(model_cls):
@@ -270,6 +378,39 @@ def validate_avro_name(name: str, context: str) -> None:
 
 def combine_full_name(namespace: str, name: str) -> str:
     return f"{namespace}.{name}" if namespace else name
+
+
+def parse_literal_enum(
+    annotation: Any, *, enum_name: str, namespace: str, path: str
+) -> LiteralEnumSpec:
+    validate_avro_name(enum_name, f"Literal enum name for field '{path}'")
+    symbols = dedupe_literal_symbols(get_args(annotation), path=path)
+    if not symbols:
+        raise AvroSchemaGenerationError(
+            f"Field '{path}' uses an empty Literal, which is not supported in v0"
+        )
+    for symbol in symbols:
+        validate_avro_name(symbol, f"Literal enum symbol for field '{path}'")
+    return LiteralEnumSpec(
+        full_name=combine_full_name(namespace, enum_name),
+        name=enum_name,
+        namespace=namespace,
+        symbols=tuple(symbols),
+    )
+
+
+def dedupe_literal_symbols(values: tuple[Any, ...], *, path: str) -> list[str]:
+    symbols: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, str):
+            raise AvroSchemaGenerationError(
+                f"Field '{path}' uses a non-string Literal value, which is not supported in v0"
+            )
+        if value not in seen:
+            symbols.append(value)
+            seen.add(value)
+    return symbols
 
 
 def own_doc(model_cls: type[Any]) -> str | None:

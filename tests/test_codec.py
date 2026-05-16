@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from pydantic import Field, ValidationError, field_validator
@@ -78,6 +78,15 @@ def test_round_trips_enum_names_for_non_string_values() -> None:
     paint = Paint(color=Color.BLUE, palette=[Color.RED])
 
     assert Paint.model_validate_avro(paint.model_dump_avro()) == paint
+
+
+def test_round_trips_literal_enum_field() -> None:
+    class Event(AvroBaseModel):
+        kind: Literal["CREATED", "DELETED"]
+
+    event = Event(kind="DELETED")
+
+    assert Event.model_validate_avro(event.model_dump_avro()) == event
 
 
 def test_invalid_bytes_raise_decode_error() -> None:

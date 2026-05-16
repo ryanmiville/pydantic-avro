@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Literal
 
 import pytest
 from pydantic import Field
@@ -95,6 +96,72 @@ def test_enum_schema_and_default() -> None:
     assert color["type"]["type"] == "enum"
     assert color["type"]["symbols"] == ["RED", "BLUE"]
     assert color["default"] == "RED"
+
+
+def test_string_literal_field_schema_is_enum() -> None:
+    class Event(AvroBaseModel):
+        kind: Literal["CREATED", "DELETED"]
+
+    kind = field(Event.model_avro_schema(), "kind")
+
+    assert kind["type"]["type"] == "enum"
+    assert kind["type"]["name"] == "Event_kind_Enum"
+    assert kind["type"]["symbols"] == ["CREATED", "DELETED"]
+
+
+def test_single_value_literal_schema_is_one_symbol_enum() -> None:
+    class Event(AvroBaseModel):
+        event_type: Literal["neo_delta"]
+
+    event_type = field(Event.model_avro_schema(), "event_type")
+
+    assert event_type["type"]["type"] == "enum"
+    assert event_type["type"]["symbols"] == ["neo_delta"]
+
+
+def test_nullable_literal_schema_orders_null_first_with_none_default() -> None:
+    class Ticket(AvroBaseModel):
+        status: Literal["OPEN", "CLOSED"] | None = None
+
+    status = field(Ticket.model_avro_schema(), "status")
+
+    assert status["type"][0] == "null"
+    assert status["type"][1]["type"] == "enum"
+    assert status["type"][1]["name"] == "Ticket_status_Enum"
+    assert status["type"][1]["symbols"] == ["OPEN", "CLOSED"]
+    assert status["default"] is None
+
+
+def test_rejects_non_string_literal() -> None:
+    class Bad(AvroBaseModel):
+        value: Literal[1, 2]
+
+    with pytest.raises(AvroSchemaGenerationError, match="value"):
+        Bad.model_avro_schema()
+
+
+def test_rejects_invalid_literal_symbol() -> None:
+    class Bad(AvroBaseModel):
+        value: Literal["bad-symbol"]
+
+    with pytest.raises(AvroSchemaGenerationError, match="value"):
+        Bad.model_avro_schema()
+
+
+def test_rejects_literal_inside_list() -> None:
+    class Bad(AvroBaseModel):
+        values: list[Literal["A", "B"]]
+
+    with pytest.raises(AvroSchemaGenerationError, match="values"):
+        Bad.model_avro_schema()
+
+
+def test_rejects_literal_inside_map() -> None:
+    class Bad(AvroBaseModel):
+        values: dict[str, Literal["A", "B"]]
+
+    with pytest.raises(AvroSchemaGenerationError, match="values"):
+        Bad.model_avro_schema()
 
 
 def test_rejects_unsupported_union() -> None:

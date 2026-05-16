@@ -24,6 +24,10 @@ _Avoid_: Always Python attribute name
 The Avro record identity for a model, defaulting to the class name within a sanitized module-path namespace.
 _Avoid_: Anonymous nested records, duplicated inline records
 
+**Literal Enum**:
+A string `Literal[...]` annotation represented as an Avro enum so the Avro Schema preserves the same closed vocabulary as Pydantic validation. Literal Enum validity is checked at Avro Schema generation time and then represented internally as a typed parsed spec; non-string literals are rejected, and string literals that are not valid Avro symbols are rejected rather than sanitized. Generated Avro enum names use `{ContainingRecordName}_{AvroFieldName}_Enum` for direct fields. Nullable direct-field Literal Enums compose with existing nullable field handling. Literal Enums inside containers are deferred and rejected for now. Single-value Literal Enums are emitted as one-symbol Avro enums. Duplicate literal values are deduplicated preserving first occurrence before symbol validation. Literal Enums are field-local; matching symbol sets on different fields do not imply shared semantics or reuse.
+_Avoid_: Treating string literals as unconstrained Avro strings, accepting numeric/bool/None literals as Avro enum symbols, merging same-shaped literals into one shared type
+
 **AvroConfigDict**:
 A typed extension of Pydantic `ConfigDict` for Avro-specific model settings under `avro_`-prefixed keys.
 _Avoid_: Separate avro_config unless model_config integration becomes costly
@@ -62,3 +66,4 @@ _Avoid_: Wrapping Pydantic ValidationError
 ## Flagged ambiguities
 
 - "Avro message" was resolved to mean schemaless binary record bytes, not object container files, schema-registry envelopes, or Avro JSON encoding.
+- A dedicated helper alias/type for Avro enum literals is a possible future nicety, but v0 should document direct string `Literal[...]` support instead of adding a wrapper with weak static guarantees.
