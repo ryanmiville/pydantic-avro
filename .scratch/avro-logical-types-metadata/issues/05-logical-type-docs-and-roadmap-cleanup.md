@@ -1,6 +1,6 @@
 # Logical type docs and roadmap cleanup
 
-Status: ready-for-agent
+Status: complete
 
 ## Parent
 
@@ -12,14 +12,14 @@ Document the completed Avro Logical Type and Avro Metadata behavior from a user'
 
 ## Acceptance criteria
 
-- [ ] Documentation lists supported inferred Avro Logical Types and their Avro primitive/logical mappings.
-- [ ] Documentation shows `Annotated[Decimal, AvroDecimal(precision=..., scale=...)]` as the Decimal surface.
-- [ ] Documentation explains that bare Decimal is under-specified and rejected.
-- [ ] Documentation explains timezone-aware datetime requirements and UTC-aware timestamp decode behavior.
-- [ ] Documentation explains that Pydantic aliases, descriptions, and supported defaults are reused for Avro when they clearly translate.
-- [ ] Documentation explains that JSON Schema-only metadata such as title, examples, and `json_schema_extra` is ignored for Avro generation.
-- [ ] Documentation names deferred features: local timestamps, millis knobs, fixed-backed decimal, decimal defaults, Avro doc/alias helpers, and record-name metadata helpers.
-- [ ] Roadmap issue status/details are consistent with the implemented behavior.
+- [x] Documentation lists supported inferred Avro Logical Types and their Avro primitive/logical mappings.
+- [x] Documentation shows `Annotated[Decimal, AvroDecimal(precision=..., scale=...)]` as the Decimal surface.
+- [x] Documentation explains that bare Decimal is under-specified and rejected.
+- [x] Documentation explains timezone-aware datetime requirements and UTC-aware timestamp decode behavior.
+- [x] Documentation explains that Pydantic aliases, descriptions, and supported defaults are reused for Avro when they clearly translate.
+- [x] Documentation explains that JSON Schema-only metadata such as title, examples, and `json_schema_extra` is ignored for Avro generation.
+- [x] Documentation names deferred features: local timestamps, millis knobs, fixed-backed decimal, decimal defaults, Avro doc/alias helpers, and record-name metadata helpers.
+- [x] Roadmap issue status/details are consistent with the implemented behavior.
 
 ## Blocked by
 

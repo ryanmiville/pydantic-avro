@@ -2,8 +2,8 @@
 
 ## Priority order
 
-1. Logical types
-2. Annotated support for Avro types/metadata
+1. Logical types — first slice complete: date, time-micros, timestamp-micros, uuid, and bytes-backed decimal via `Annotated[Decimal, AvroDecimal(...)]`
+2. Annotated support for Avro types/metadata — first slice complete for `AvroDecimal`; broader helper surfaces deferred
 3. Compatibility checker
 4. Confluent/schema-registry format
 5. Arbitrary unions

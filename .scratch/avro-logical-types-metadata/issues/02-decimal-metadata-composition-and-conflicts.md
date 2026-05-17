@@ -1,6 +1,6 @@
 # Decimal metadata composition and conflicts
 
-Status: ready-for-agent
+Status: complete
 
 ## Parent
 

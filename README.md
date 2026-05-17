@@ -64,10 +64,6 @@ See `examples/user.py` for a runnable smoke test.
 - `float` as Avro `double`
 - `str`
 - `bytes`
-- `datetime.date` as Avro `date`
-- `datetime.time` as Avro `time-micros`
-- `uuid.UUID` as Avro `uuid`
-- `Annotated[Decimal, AvroDecimal(precision=..., scale=...)]` as bytes-backed Avro `decimal`
 - `list[T]`
 - `dict[str, T]`
 - `Enum`
@@ -76,10 +72,49 @@ See `examples/user.py` for a runnable smoke test.
 - nested `AvroBaseModel` records
 - nullable `T | None`
 
+## Avro Logical Types
+
+Avro logical mappings in the generated Avro Schema:
+
+| Python surface | Avro primitive | Avro Logical Type | How selected |
+| --- | --- | --- | --- |
+| `datetime.date` | `int` | `date` | inferred |
+| `datetime.time` | `long` | `time-micros` | inferred |
+| `datetime.datetime` | `long` | `timestamp-micros` | inferred |
+| `uuid.UUID` | `string` | `uuid` | inferred |
+| `Annotated[Decimal, AvroDecimal(precision=..., scale=...)]` | `bytes` | `decimal` | explicit Avro Metadata |
+
+`datetime.datetime` Avro Message values and Avro Schema defaults must be timezone-aware. Decoded `timestamp-micros` values come back as the codec's UTC-aware `datetime` representation of the stored instant.
+
+`Decimal` needs explicit Avro Metadata because Avro requires precision and scale:
+
+```python
+from decimal import Decimal
+from typing import Annotated
+
+from pydantic_avro import AvroBaseModel, AvroDecimal
+
+
+class Invoice(AvroBaseModel):
+    amount: Annotated[Decimal, AvroDecimal(precision=12, scale=2)]
+```
+
+Bare `Decimal` is rejected as under-specified; use `Annotated[Decimal, AvroDecimal(...)]` instead.
+
+## Avro field metadata
+
+Pydantic `Field` remains the source for Avro field details when it clearly translates:
+
+- aliases choose the Avro Field Name (`serialization_alias` first, then `alias`, then the Python field name)
+- `description` becomes Avro field `doc`
+- supported defaults become Avro defaults
+
+JSON Schema-only metadata is ignored for Avro Schema generation, including `title`, `examples`, and `json_schema_extra`, even if it contains Avro-looking keys.
+
 ## Supported defaults
 
 - primitive defaults (`None`, `bool`, `int`, `float`, `str`)
-- date, time, and UUID logical defaults emitted as Avro primitive values
+- date, time, datetime, and UUID logical defaults emitted as Avro primitive values
 - enum and string `Literal[...]` field defaults
 - representable collection defaults, recursively:
   - `list[T] = []` or `[value, ...]`
@@ -88,7 +123,7 @@ See `examples/user.py` for a runnable smoke test.
   - `Field(default_factory=list)` emits Avro default `[]`
   - `Field(default_factory=dict)` emits Avro default `{}`
 
-Arbitrary factories are not called during schema generation.
+Datetime defaults must be timezone-aware. Decimal defaults are not supported yet. Arbitrary factories are not called during schema generation.
 
 ## Out of scope for now
 
@@ -98,7 +133,12 @@ Arbitrary factories are not called during schema generation.
 - schema evolution with separate writer/reader schemas
 - arbitrary unions beyond `T | None`
 - recursive models
-- `datetime.datetime` logical types
+- local timestamp Avro Logical Types
+- millisecond logical type selection knobs
+- fixed-backed decimal
+- decimal defaults
+- Avro doc/alias helper metadata objects
+- record-name metadata helpers
 - bare `Decimal` without `AvroDecimal` metadata
 - anonymous `Literal[...]` inside containers
 - non-string / invalid Avro enum symbols

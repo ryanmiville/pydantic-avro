@@ -1,6 +1,6 @@
 # Annotated Decimal logical type tracer
 
-Status: ready-for-agent
+Status: complete
 
 ## Parent
 

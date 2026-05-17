@@ -1,6 +1,6 @@
 # Avro logical types and typed metadata
 
-Status: ready-for-agent
+Status: complete
 
 ## Problem Statement
 

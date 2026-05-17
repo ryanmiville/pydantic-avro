@@ -1,6 +1,6 @@
 # Timestamp logical type with timezone safety
 
-Status: ready-for-agent
+Status: complete
 
 ## Parent
 
@@ -12,15 +12,15 @@ Add inferred Avro `timestamp-micros` support for exact standard-library `datetim
 
 ## Acceptance criteria
 
-- [ ] `datetime` annotations emit Avro `long` with `logicalType: timestamp-micros`.
-- [ ] Generated timestamp schemas are fastavro-parseable.
-- [ ] Timezone-aware datetime values round-trip through Avro Message encode/decode and Pydantic validation.
-- [ ] Decoded timestamp values preserve the UTC-aware datetime representation of the stored instant.
-- [ ] Naive datetime values fail Avro Message encoding with a clear Avro encode failure.
-- [ ] Naive datetime defaults fail Avro Schema generation with a clear schema generation error.
-- [ ] Timestamp defaults emit Avro's underlying primitive JSON value.
-- [ ] Timestamp logical types compose through nullable fields, arrays, and string-keyed maps.
-- [ ] Local timestamp semantics are not inferred from plain `datetime`.
+- [x] `datetime` annotations emit Avro `long` with `logicalType: timestamp-micros`.
+- [x] Generated timestamp schemas are fastavro-parseable.
+- [x] Timezone-aware datetime values round-trip through Avro Message encode/decode and Pydantic validation.
+- [x] Decoded timestamp values preserve the UTC-aware datetime representation of the stored instant.
+- [x] Naive datetime values fail Avro Message encoding with a clear Avro encode failure.
+- [x] Naive datetime defaults fail Avro Schema generation with a clear schema generation error.
+- [x] Timestamp defaults emit Avro's underlying primitive JSON value.
+- [x] Timestamp logical types compose through nullable fields, arrays, and string-keyed maps.
+- [x] Local timestamp semantics are not inferred from plain `datetime`.
 
 ## Blocked by
 
