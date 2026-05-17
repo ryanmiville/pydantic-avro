@@ -64,6 +64,10 @@ See `examples/user.py` for a runnable smoke test.
 - `float` as Avro `double`
 - `str`
 - `bytes`
+- `datetime.date` as Avro `date`
+- `datetime.time` as Avro `time-micros`
+- `uuid.UUID` as Avro `uuid`
+- `Annotated[Decimal, AvroDecimal(precision=..., scale=...)]` as bytes-backed Avro `decimal`
 - `list[T]`
 - `dict[str, T]`
 - `Enum`
@@ -75,6 +79,7 @@ See `examples/user.py` for a runnable smoke test.
 ## Supported defaults
 
 - primitive defaults (`None`, `bool`, `int`, `float`, `str`)
+- date, time, and UUID logical defaults emitted as Avro primitive values
 - enum and string `Literal[...]` field defaults
 - representable collection defaults, recursively:
   - `list[T] = []` or `[value, ...]`
@@ -93,7 +98,8 @@ Arbitrary factories are not called during schema generation.
 - schema evolution with separate writer/reader schemas
 - arbitrary unions beyond `T | None`
 - recursive models
-- decimal/date/time logical types
+- `datetime.datetime` logical types
+- bare `Decimal` without `AvroDecimal` metadata
 - anonymous `Literal[...]` inside containers
 - non-string / invalid Avro enum symbols
 - generic type aliases

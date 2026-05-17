@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import date, time
 from decimal import Decimal
 from enum import Enum
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 import pytest
 from pydantic import Field, ValidationError, field_validator
@@ -33,6 +35,21 @@ def test_round_trips_named_decimal_alias_inside_containers() -> None:
     )
 
     assert InvoiceBatch.model_validate_avro(batch.model_dump_avro()) == batch
+
+
+def test_round_trips_date_time_and_uuid_logical_values() -> None:
+    class Event(AvroBaseModel):
+        starts_on: date
+        starts_at: time
+        event_id: UUID
+
+    event = Event(
+        starts_on=date(2024, 2, 29),
+        starts_at=time(12, 34, 56, 789),
+        event_id=UUID("12345678-1234-5678-1234-567812345678"),
+    )
+
+    assert Event.model_validate_avro(event.model_dump_avro()) == event
 
 
 def test_round_trips_primitive_model() -> None:

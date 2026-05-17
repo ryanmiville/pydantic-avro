@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import date, datetime, time
 from decimal import Decimal
 from enum import Enum
 from typing import Annotated, Any, Literal, cast
+from uuid import UUID
 
 import pytest
 from pydantic import Field
@@ -70,6 +72,97 @@ def test_annotated_decimal_schema_is_bytes_backed_logical_type() -> None:
         "scale": 2,
     }
     parse_schema(schema)
+
+
+def test_date_schema_is_int_backed_logical_type() -> None:
+    class Event(AvroBaseModel):
+        starts_on: date
+
+    schema = Event.model_avro_schema()
+    starts_on = field(schema, "starts_on")
+
+    assert starts_on["type"] == {"type": "int", "logicalType": "date"}
+    parse_schema(schema)
+
+
+def test_time_schema_is_long_backed_time_micros_logical_type() -> None:
+    class Event(AvroBaseModel):
+        starts_at: time
+
+    schema = Event.model_avro_schema()
+    starts_at = field(schema, "starts_at")
+
+    assert starts_at["type"] == {"type": "long", "logicalType": "time-micros"}
+    parse_schema(schema)
+
+
+def test_uuid_schema_is_string_backed_logical_type() -> None:
+    class Event(AvroBaseModel):
+        event_id: UUID
+
+    schema = Event.model_avro_schema()
+    event_id = field(schema, "event_id")
+
+    assert event_id["type"] == {"type": "string", "logicalType": "uuid"}
+    parse_schema(schema)
+
+
+def test_date_time_and_uuid_logical_types_compose_through_nullable_array_and_map() -> None:
+    class Event(AvroBaseModel):
+        maybe_starts_on: date | None = None
+        starts_at: list[time]
+        event_ids: dict[str, UUID]
+
+    schema = Event.model_avro_schema()
+
+    assert field(schema, "maybe_starts_on")["type"] == [
+        "null",
+        {"type": "int", "logicalType": "date"},
+    ]
+    assert field(schema, "starts_at")["type"] == {
+        "type": "array",
+        "items": {"type": "long", "logicalType": "time-micros"},
+    }
+    assert field(schema, "event_ids")["type"] == {
+        "type": "map",
+        "values": {"type": "string", "logicalType": "uuid"},
+    }
+    parse_schema(schema)
+
+
+def test_date_default_emits_days_since_unix_epoch() -> None:
+    class Event(AvroBaseModel):
+        starts_on: date = date(1970, 1, 3)
+
+    starts_on = field(Event.model_avro_schema(), "starts_on")
+
+    assert starts_on["default"] == 2
+
+
+def test_time_default_emits_microseconds_since_midnight() -> None:
+    class Event(AvroBaseModel):
+        starts_at: time = time(1, 2, 3, 4)
+
+    starts_at = field(Event.model_avro_schema(), "starts_at")
+
+    assert starts_at["default"] == 3_723_000_004
+
+
+def test_uuid_default_emits_string_value() -> None:
+    class Event(AvroBaseModel):
+        event_id: UUID = UUID("12345678-1234-5678-1234-567812345678")
+
+    event_id = field(Event.model_avro_schema(), "event_id")
+
+    assert event_id["default"] == "12345678-1234-5678-1234-567812345678"
+
+
+def test_date_default_rejects_datetime_value() -> None:
+    class Event(AvroBaseModel):
+        starts_on: date = datetime(1970, 1, 3)
+
+    with pytest.raises(AvroSchemaGenerationError, match="date default.*datetime"):
+        Event.model_avro_schema()
 
 
 def test_bare_decimal_schema_generation_requires_explicit_metadata() -> None:

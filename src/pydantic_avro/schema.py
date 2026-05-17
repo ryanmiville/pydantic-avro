@@ -5,9 +5,11 @@ import inspect
 import re
 import types
 from dataclasses import dataclass, field
+from datetime import date, datetime, time
 from decimal import Decimal
 from enum import Enum
 from typing import Annotated, Any, Literal, TypeAliasType, Union, get_args, get_origin
+from uuid import UUID
 
 from fastavro import parse_schema
 from pydantic_core import PydanticUndefined
@@ -17,6 +19,7 @@ from .metadata import AvroDecimal
 
 AvroType = str | dict[str, Any] | list[Any]
 _NONE_TYPE = type(None)
+_UNIX_EPOCH_DATE = date(1970, 1, 1)
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _INVALID_NAME_CHAR_RE = re.compile(r"[^A-Za-z0-9_]")
 
@@ -193,6 +196,12 @@ class SchemaGenerator:
             return "string"
         if annotation is bytes:
             return "bytes"
+        if annotation is date:
+            return {"type": "int", "logicalType": "date"}
+        if annotation is time:
+            return {"type": "long", "logicalType": "time-micros"}
+        if annotation is UUID:
+            return {"type": "string", "logicalType": "uuid"}
         if annotation is Decimal:
             raise AvroSchemaGenerationError(
                 f"Field '{path}' uses Decimal without Avro metadata; use "
@@ -380,6 +389,21 @@ class SchemaGenerator:
             }
         if isinstance(default, Enum):
             return self.enum_symbol(default, path=path)
+        if annotation is date:
+            if type(default) is date:
+                return (default - _UNIX_EPOCH_DATE).days
+            if isinstance(default, datetime):
+                raise AvroSchemaGenerationError(
+                    f"Field '{path}' has a date default from datetime; use a pure date value"
+                )
+        if annotation is time and type(default) is time:
+            return (
+                ((default.hour * 60 + default.minute) * 60 + default.second)
+                * 1_000_000
+                + default.microsecond
+            )
+        if annotation is UUID and type(default) is UUID:
+            return str(default)
         if default is None or isinstance(default, bool | int | float | str):
             return default
         raise AvroSchemaGenerationError(

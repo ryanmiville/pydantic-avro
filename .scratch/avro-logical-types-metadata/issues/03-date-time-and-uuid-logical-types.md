@@ -1,6 +1,6 @@
 # Date, time, and UUID logical types
 
-Status: ready-for-agent
+Status: complete
 
 ## Parent
 
@@ -12,15 +12,15 @@ Add inferred Avro Logical Types for exact standard-library date, time, and UUID 
 
 ## Acceptance criteria
 
-- [ ] `date` annotations emit Avro `int` with `logicalType: date`.
-- [ ] `time` annotations emit Avro `long` with `logicalType: time-micros`.
-- [ ] `UUID` annotations emit Avro `string` with `logicalType: uuid`.
-- [ ] Plain `str` remains a plain Avro string and does not infer UUID semantics.
-- [ ] Generated date, time, and UUID schemas are fastavro-parseable.
-- [ ] Date, time, and UUID values round-trip through Avro Message encode/decode and Pydantic validation.
-- [ ] Date, time, and UUID logical types compose through nullable fields, arrays, and string-keyed maps.
-- [ ] Date, time, and UUID defaults emit Avro's underlying primitive JSON values.
-- [ ] Calendar-date defaults reject `datetime` values where a pure date is required.
+- [x] `date` annotations emit Avro `int` with `logicalType: date`.
+- [x] `time` annotations emit Avro `long` with `logicalType: time-micros`.
+- [x] `UUID` annotations emit Avro `string` with `logicalType: uuid`.
+- [x] Plain `str` remains a plain Avro string and does not infer UUID semantics.
+- [x] Generated date, time, and UUID schemas are fastavro-parseable.
+- [x] Date, time, and UUID values round-trip through Avro Message encode/decode and Pydantic validation.
+- [x] Date, time, and UUID logical types compose through nullable fields, arrays, and string-keyed maps.
+- [x] Date, time, and UUID defaults emit Avro's underlying primitive JSON values.
+- [x] Calendar-date defaults reject `datetime` values where a pure date is required.
 
 ## Blocked by
 
