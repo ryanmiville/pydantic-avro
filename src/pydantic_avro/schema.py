@@ -5,6 +5,7 @@ import inspect
 import re
 import types
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import Enum
 from typing import Annotated, Any, Literal, TypeAliasType, Union, get_args, get_origin
 
@@ -12,6 +13,7 @@ from fastavro import parse_schema
 from pydantic_core import PydanticUndefined
 
 from .errors import AvroSchemaGenerationError
+from .metadata import AvroDecimal
 
 AvroType = str | dict[str, Any] | list[Any]
 _NONE_TYPE = type(None)
@@ -62,6 +64,12 @@ class NamedLiteralAlias:
 @dataclass(frozen=True)
 class TransparentAlias:
     annotation: Any
+
+
+@dataclass(frozen=True)
+class ParsedAvroAnnotation:
+    annotation: Any
+    decimal: AvroDecimal | None = None
 
 
 NamedTypeOwner = PythonNamedType | LiteralEnumNamedType
@@ -121,8 +129,9 @@ class SchemaGenerator:
     ) -> dict[str, Any]:
         avro_name = avro_field_name(python_name, field_info)
         default = avro_field_default(field_info, path=avro_name)
+        annotation = annotation_with_field_metadata(field_info.annotation, field_info.metadata)
         avro_type = self.avro_type(
-            field_info.annotation,
+            annotation,
             path=avro_name,
             default=default,
             literal_enum_name=f"{record_name}_{avro_name}_Enum",
@@ -134,9 +143,7 @@ class SchemaGenerator:
         if description:
             result["doc"] = description
         if default is not PydanticUndefined:
-            result["default"] = self.avro_default(
-                field_info.annotation, default, path=avro_name
-            )
+            result["default"] = self.avro_default(annotation, default, path=avro_name)
         return result
 
     def avro_type(
@@ -148,7 +155,14 @@ class SchemaGenerator:
         literal_enum_name: str | None = None,
         literal_enum_namespace: str = "",
     ) -> AvroType:
-        annotation = unwrap_annotated(annotation)
+        parsed_avro = parse_avro_annotation(annotation, path=path)
+        annotation = parsed_avro.annotation
+        if parsed_avro.decimal is not None:
+            if annotation is not Decimal:
+                raise AvroSchemaGenerationError(
+                    f"Field '{path}' uses AvroDecimal metadata on a non-Decimal type"
+                )
+            return decimal_schema(parsed_avro.decimal)
         parsed_alias = parse_type_alias(annotation, path=path)
         if isinstance(parsed_alias, NamedLiteralAlias):
             return self.literal_enum_schema(
@@ -179,6 +193,11 @@ class SchemaGenerator:
             return "string"
         if annotation is bytes:
             return "bytes"
+        if annotation is Decimal:
+            raise AvroSchemaGenerationError(
+                f"Field '{path}' uses Decimal without Avro metadata; use "
+                "Annotated[Decimal, AvroDecimal(precision=..., scale=...)]"
+            )
 
         if origin is Literal:
             return self.literal_enum_schema(
@@ -242,8 +261,12 @@ class SchemaGenerator:
         literal_enum_name: str | None,
         literal_enum_namespace: str,
     ) -> list[Any]:
-        args = tuple(unwrap_annotated(arg) for arg in get_args(annotation))
-        non_null = [arg for arg in args if arg is not _NONE_TYPE]
+        args = get_args(annotation)
+        non_null = [
+            arg
+            for arg in args
+            if parse_avro_annotation(arg, path=path).annotation is not _NONE_TYPE
+        ]
         has_null = len(non_null) != len(args)
         if not has_null or len(non_null) != 1:
             raise AvroSchemaGenerationError(
@@ -304,7 +327,12 @@ class SchemaGenerator:
         return schema
 
     def avro_default(self, annotation: Any, default: Any, *, path: str) -> Any:
-        annotation = unwrap_annotated(annotation)
+        parsed_avro = parse_avro_annotation(annotation, path=path)
+        annotation = parsed_avro.annotation
+        if parsed_avro.decimal is not None:
+            raise AvroSchemaGenerationError(
+                f"Field '{path}' has a Decimal Avro default, which is not supported in v0"
+            )
         parsed_alias = parse_type_alias(annotation, path=path)
         if isinstance(parsed_alias, NamedLiteralAlias):
             annotation = parsed_alias.literal
@@ -317,7 +345,7 @@ class SchemaGenerator:
             non_null = [
                 arg
                 for arg in get_args(annotation)
-                if unwrap_annotated(arg) is not _NONE_TYPE
+                if parse_avro_annotation(arg, path=path).annotation is not _NONE_TYPE
             ]
             if len(non_null) != 1:
                 raise AvroSchemaGenerationError(
@@ -499,7 +527,7 @@ def type_alias_value(alias: TypeAliasType, *, path: str) -> Any:
             raise AvroSchemaGenerationError(
                 f"Field '{path}' uses generic type alias '{current.__name__}', which is not supported in v0"
             )
-        value = unwrap_annotated(current.__value__)
+        value = current.__value__
         if not isinstance(value, TypeAliasType):
             return value
         current = value
@@ -544,10 +572,38 @@ def own_doc(model_cls: type[Any]) -> str | None:
     return inspect.getdoc(model_cls)
 
 
-def unwrap_annotated(annotation: Any) -> Any:
+def annotation_with_field_metadata(annotation: Any, metadata: list[Any]) -> Any:
+    if not metadata:
+        return annotation
+    return Annotated[annotation, *metadata]
+
+
+def parse_avro_annotation(annotation: Any, *, path: str) -> ParsedAvroAnnotation:
+    decimal: AvroDecimal | None = None
     while get_origin(annotation) is Annotated:
-        annotation = get_args(annotation)[0]
-    return annotation
+        args = get_args(annotation)
+        annotation = args[0]
+        for metadata in args[1:]:
+            if isinstance(metadata, AvroDecimal):
+                if decimal is not None:
+                    raise AvroSchemaGenerationError(
+                        f"Field '{path}' uses duplicate AvroDecimal metadata"
+                    )
+                decimal = metadata
+    return ParsedAvroAnnotation(annotation=annotation, decimal=decimal)
+
+
+def decimal_schema(metadata: AvroDecimal) -> dict[str, Any]:
+    return {
+        "type": "bytes",
+        "logicalType": "decimal",
+        "precision": metadata.precision,
+        "scale": metadata.scale,
+    }
+
+
+def unwrap_annotated(annotation: Any) -> Any:
+    return parse_avro_annotation(annotation, path="annotation").annotation
 
 
 def is_avro_model(type_: type[Any]) -> bool:

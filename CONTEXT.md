@@ -28,6 +28,14 @@ _Avoid_: Anonymous nested records, duplicated inline records
 A string `Literal[...]` annotation represented as an Avro enum so the Avro Schema preserves the same closed vocabulary as Pydantic validation.
 _Avoid_: Treating string literals as unconstrained Avro strings, accepting numeric/bool/None literals as Avro enum symbols
 
+**Avro Logical Type**:
+An Avro primitive with standardized logical metadata that preserves a richer Python value type at the schema boundary.
+_Avoid_: Custom field metadata, Pydantic serializer behavior, JSON Schema format
+
+**Avro Metadata**:
+Typed schema annotations that express Avro-specific choices not captured by the Python value type alone.
+_Avoid_: Stringly-typed dictionaries, arbitrary JSON Schema extras, Pydantic-only metadata
+
 **Anonymous Literal Enum**:
 A plain string `Literal[...]` represented as a field-local Avro enum whose generated name uses `{ContainingRecordName}_{AvroFieldName}_Enum` for direct fields.
 _Avoid_: Inferring the name from `OpType = Literal[...]`, merging same-shaped anonymous literals into one shared type
@@ -46,7 +54,7 @@ _Avoid_: Wrapping Pydantic ValidationError
 
 ## Relationships
 
-- Public v0 exports are **AvroBaseModel**, **AvroConfigDict**, **PydanticAvroError**, **AvroSchemaGenerationError**, **AvroEncodeError**, and **AvroDecodeError**.
+- Public v0 exports are **AvroBaseModel**, **AvroConfigDict**, **AvroDecimal**, **PydanticAvroError**, **AvroSchemaGenerationError**, **AvroEncodeError**, and **AvroDecodeError**.
 - v0 supports Avro mappings for null, boolean, long, double, string, bytes, arrays, string-keyed maps, enums, records, and nullable fields.
 - Python `int` maps to Avro `long` by default; explicit 32-bit integer annotations are deferred.
 - Nullable fields order Avro union branches so the default value matches the first branch when a default exists.
@@ -57,8 +65,31 @@ _Avoid_: Wrapping Pydantic ValidationError
 - `model_dump_avro()` serializes `model_dump(by_alias=True, mode="python")` through `fastavro`.
 - `model_avro_schema()` returns a freshly generated raw dictionary; parsed `fastavro` schemas may be cached internally for encode/decode.
 - v0 wraps schema, encode, and decode failures in **PydanticAvroError** subclasses while preserving Pydantic `ValidationError` unchanged.
-- Model docstrings map to Avro record `doc`; field descriptions map to Avro field `doc`; titles and non-standard metadata are ignored in v0.
+- Model docstrings map to Avro record `doc`; field descriptions are the canonical surface for Avro field `doc`; titles and non-standard metadata are ignored in v0.
 - v0 rejects arbitrary unions, discriminated unions, constrained Avro constraints, decimal, temporal logical types, recursive models, non-string map keys, and schema changes from custom validators/serializers.
+- **Avro Logical Types** are inferred from standard Python value types when there is one obvious Avro mapping; under-specified logical types require explicit Avro metadata.
+- Python `datetime` maps to Avro `timestamp-micros`; local timestamp semantics are not inferred from plain `datetime`.
+- Encoding a Python `datetime` as `timestamp-micros` requires a timezone-aware value because Avro stores a UTC instant and does not preserve local timezone identity.
+- Decoding Avro `timestamp-micros` returns the UTC-aware `datetime` representation of the stored instant.
+- Python `time` maps to Avro `time-micros` to preserve microsecond precision.
+- Python `UUID` maps to Avro `string` with UUID logical metadata; plain `str` remains a plain Avro string.
+- Python `Decimal` requires explicit keyword-only **Avro Metadata** for precision and scale and maps to bytes-backed decimal unless fixed-backed decimal support is added later.
+- Avro defaults are supported for temporal and UUID logical types; decimal logical defaults are deferred.
+- Datetime logical defaults must be timezone-aware for the same reason as datetime message values.
+- Logical type schema defaults are emitted as Avro's underlying primitive JSON values.
+- Decimal value precision and scale are enforced by the Avro codec during message encoding, not reimplemented by Pydantic Avro.
+- Calendar-date logical values reject `datetime` values where a pure `date` is required.
+- **Avro Metadata** helper objects validate their own values when constructed; invalid helper values raise normal Python value errors.
+- **Avro Metadata** is represented by specific typed helper objects rather than generic dictionaries.
+- **Avro Metadata** does not duplicate Pydantic surfaces that already map cleanly to Avro, such as field aliases for Avro field names and field descriptions for Avro field `doc`.
+- Pydantic JSON Schema-only metadata, including field titles and `json_schema_extra`, is ignored for Avro schema generation.
+- Avro-specific metadata is supplied only through `Annotated[...]` helper objects.
+- Pydantic `Field(...)` metadata may be written inside or outside `Annotated[...]`; Avro schema generation reads normalized Pydantic field info and only parses Avro helper objects from `Annotated[...]` metadata.
+- Non-Avro `Annotated[...]` metadata is ignored by Avro schema generation.
+- Duplicate, conflicting, or type-incompatible **Avro Metadata** is rejected during Avro schema generation.
+- **Avro Metadata** attached to named aliases applies consistently anywhere that alias is used, including inside containers.
+- Supported logical types compose through nullable fields, arrays, and string-keyed maps.
+- Logical type inference recognizes the exact supported standard-library annotations, not Pydantic constrained types or subclass annotations.
 - An **Avro Message** is encoded and decoded with exactly one **Avro Schema** in the default API.
 - An **Avro Schema** is derived from Pydantic `model_fields` and resolved annotations in v0, not converted from JSON Schema or generated from CoreSchema.
 - `model_avro_schema()` returns a raw dictionary; parsed encoder/decoder schemas are internal cache details.

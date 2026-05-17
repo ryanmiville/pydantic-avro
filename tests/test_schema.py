@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from enum import Enum
-from typing import Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 import pytest
 from pydantic import Field
 
-from pydantic_avro import AvroBaseModel, AvroSchemaGenerationError
+from fastavro import parse_schema
+
+from pydantic_avro import AvroBaseModel, AvroDecimal, AvroSchemaGenerationError
 
 
 type OpType = Literal["CREATE", "DELETE"]
@@ -28,6 +31,62 @@ class ClosedAlias:
 
 def field(schema: dict, name: str) -> dict:
     return next(item for item in schema["fields"] if item["name"] == name)
+
+
+def test_avro_decimal_is_keyword_only_public_metadata_helper() -> None:
+    assert AvroDecimal(precision=12, scale=2).precision == 12
+    positional_avro_decimal: Any = AvroDecimal
+    with pytest.raises(TypeError):
+        positional_avro_decimal(12, 2)
+
+
+@pytest.mark.parametrize(
+    ("precision", "scale"),
+    [
+        (0, 0),
+        (12, -1),
+        (2, 3),
+    ],
+)
+def test_avro_decimal_rejects_invalid_precision_scale(
+    precision: int, scale: int
+) -> None:
+    with pytest.raises(ValueError):
+        AvroDecimal(precision=precision, scale=scale)
+
+
+def test_annotated_decimal_schema_is_bytes_backed_logical_type() -> None:
+    class Invoice(AvroBaseModel):
+        amount: Annotated[Decimal, AvroDecimal(precision=12, scale=2)]
+
+    schema = Invoice.model_avro_schema()
+    amount = field(schema, "amount")
+
+    assert amount["type"] == {
+        "type": "bytes",
+        "logicalType": "decimal",
+        "precision": 12,
+        "scale": 2,
+    }
+    parse_schema(schema)
+
+
+def test_bare_decimal_schema_generation_requires_explicit_metadata() -> None:
+    class Invoice(AvroBaseModel):
+        amount: Decimal
+
+    with pytest.raises(AvroSchemaGenerationError, match="AvroDecimal"):
+        Invoice.model_avro_schema()
+
+
+def test_decimal_defaults_are_unsupported() -> None:
+    class Invoice(AvroBaseModel):
+        amount: Annotated[Decimal, AvroDecimal(precision=12, scale=2)] = Decimal(
+            "0.00"
+        )
+
+    with pytest.raises(AvroSchemaGenerationError, match="Decimal Avro default"):
+        Invoice.model_avro_schema()
 
 
 def test_primitive_record_schema() -> None:

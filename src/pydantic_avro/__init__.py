@@ -6,10 +6,12 @@ from .errors import (
     AvroSchemaGenerationError,
     PydanticAvroError,
 )
+from .metadata import AvroDecimal
 
 __all__ = (
     "AvroBaseModel",
     "AvroConfigDict",
+    "AvroDecimal",
     "PydanticAvroError",
     "AvroSchemaGenerationError",
     "AvroEncodeError",

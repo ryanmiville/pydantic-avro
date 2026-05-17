@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from enum import Enum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import pytest
 from pydantic import Field, ValidationError, field_validator
 
-from pydantic_avro import AvroBaseModel, AvroDecodeError
+from pydantic_avro import AvroBaseModel, AvroDecimal, AvroDecodeError
+
+
+def test_round_trips_annotated_decimal() -> None:
+    class Invoice(AvroBaseModel):
+        amount: Annotated[Decimal, AvroDecimal(precision=12, scale=2)]
+
+    invoice = Invoice(amount=Decimal("123.45"))
+
+    assert Invoice.model_validate_avro(invoice.model_dump_avro()) == invoice
 
 
 def test_round_trips_primitive_model() -> None:
