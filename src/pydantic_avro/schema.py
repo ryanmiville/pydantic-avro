@@ -6,7 +6,7 @@ import re
 import types
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Annotated, Any, Literal, Union, get_args, get_origin
+from typing import Annotated, Any, Literal, TypeAliasType, Union, get_args, get_origin
 
 from fastavro import parse_schema
 from pydantic_core import PydanticUndefined
@@ -53,7 +53,19 @@ class LiteralEnumSpec:
     symbols: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class NamedLiteralAlias:
+    name: str
+    literal: Any
+
+
+@dataclass(frozen=True)
+class TransparentAlias:
+    annotation: Any
+
+
 NamedTypeOwner = PythonNamedType | LiteralEnumNamedType
+ParsedTypeAlias = NamedLiteralAlias | TransparentAlias
 
 
 @dataclass
@@ -137,6 +149,22 @@ class SchemaGenerator:
         literal_enum_namespace: str = "",
     ) -> AvroType:
         annotation = unwrap_annotated(annotation)
+        parsed_alias = parse_type_alias(annotation, path=path)
+        if isinstance(parsed_alias, NamedLiteralAlias):
+            return self.literal_enum_schema(
+                parsed_alias.literal,
+                path=path,
+                name=parsed_alias.name,
+                namespace=literal_enum_namespace,
+            )
+        if isinstance(parsed_alias, TransparentAlias):
+            return self.avro_type(
+                parsed_alias.annotation,
+                path=path,
+                default=default,
+                literal_enum_name=literal_enum_name,
+                literal_enum_namespace=literal_enum_namespace,
+            )
         origin = get_origin(annotation)
 
         if annotation is _NONE_TYPE or annotation is None:
@@ -171,7 +199,11 @@ class SchemaGenerator:
             (item_type,) = self.single_type_arg(annotation, path=path, container="list")
             return {
                 "type": "array",
-                "items": self.avro_type(item_type, path=f"{path}[]"),
+                "items": self.avro_type(
+                    item_type,
+                    path=f"{path}[]",
+                    literal_enum_namespace=literal_enum_namespace,
+                ),
             }
         if origin is dict:
             key_type, value_type = self.type_args(annotation, path=path, container="dict", count=2)
@@ -181,7 +213,11 @@ class SchemaGenerator:
                 )
             return {
                 "type": "map",
-                "values": self.avro_type(value_type, path=f"{path}{{}}"),
+                "values": self.avro_type(
+                    value_type,
+                    path=f"{path}{{}}",
+                    literal_enum_namespace=literal_enum_namespace,
+                ),
             }
 
         if inspect.isclass(annotation) and issubclass(annotation, Enum):
@@ -228,7 +264,8 @@ class SchemaGenerator:
     ) -> AvroType:
         if name is None:
             raise AvroSchemaGenerationError(
-                f"Field '{path}' uses Literal inside a container, which is not supported in v0"
+                f"Field '{path}' uses Literal inside a container; use a named type alias "
+                "such as 'type Name = Literal[...]' to give the Avro enum a stable name"
             )
         spec = parse_literal_enum(
             annotation,
@@ -268,6 +305,11 @@ class SchemaGenerator:
 
     def avro_default(self, annotation: Any, default: Any, *, path: str) -> Any:
         annotation = unwrap_annotated(annotation)
+        parsed_alias = parse_type_alias(annotation, path=path)
+        if isinstance(parsed_alias, NamedLiteralAlias):
+            annotation = parsed_alias.literal
+        elif isinstance(parsed_alias, TransparentAlias):
+            annotation = parsed_alias.annotation
         origin = get_origin(annotation)
         if origin in (Union, types.UnionType):
             if default is None:
@@ -427,6 +469,40 @@ def validate_avro_name(name: str, context: str) -> None:
 
 def combine_full_name(namespace: str, name: str) -> str:
     return f"{namespace}.{name}" if namespace else name
+
+
+def parse_type_alias(annotation: Any, *, path: str) -> ParsedTypeAlias | None:
+    origin = get_origin(annotation)
+    if isinstance(origin, TypeAliasType):
+        raise AvroSchemaGenerationError(
+            f"Field '{path}' uses generic type alias '{origin.__name__}', which is not supported in v0"
+        )
+    if not isinstance(annotation, TypeAliasType):
+        return None
+
+    alias_value = type_alias_value(annotation, path=path)
+    if get_origin(alias_value) is Literal:
+        return NamedLiteralAlias(name=annotation.__name__, literal=alias_value)
+    return TransparentAlias(annotation=alias_value)
+
+
+def type_alias_value(alias: TypeAliasType, *, path: str) -> Any:
+    seen: set[int] = set()
+    current = alias
+    while True:
+        if id(current) in seen:
+            raise AvroSchemaGenerationError(
+                f"Field '{path}' uses recursive type alias '{current.__name__}', which is not supported in v0"
+            )
+        seen.add(id(current))
+        if current.__type_params__:
+            raise AvroSchemaGenerationError(
+                f"Field '{path}' uses generic type alias '{current.__name__}', which is not supported in v0"
+            )
+        value = unwrap_annotated(current.__value__)
+        if not isinstance(value, TypeAliasType):
+            return value
+        current = value
 
 
 def parse_literal_enum(

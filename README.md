@@ -12,6 +12,8 @@ It uses `fastavro` for the codec.
 
 ## Install
 
+Requires Python 3.14 or newer.
+
 Not published to PyPI yet. Install from GitHub for now:
 
 ```bash
@@ -23,8 +25,13 @@ pip install git+https://github.com/ryanmiville/pydantic-avro
 ## Quickstart
 
 ```python
+from typing import Literal
+
 from pydantic import Field
 from pydantic_avro import AvroBaseModel, AvroConfigDict
+
+
+type Role = Literal["ADMIN", "USER"]
 
 
 class User(AvroBaseModel):
@@ -34,10 +41,11 @@ class User(AvroBaseModel):
 
     id: int = Field(serialization_alias="userId")
     name: str
+    role: Role
     email: str | None = Field(default=None, description="Contact email")
 
 
-user = User(id=1, name="Ada")
+user = User(id=1, name="Ada", role="ADMIN")
 
 schema = User.model_avro_schema()
 payload = user.model_dump_avro()
@@ -60,6 +68,7 @@ See `examples/user.py` for a runnable smoke test.
 - `dict[str, T]`
 - `Enum`
 - string `Literal[...]` as Avro enum fields
+- named string Literal aliases (`type Role = Literal[...]`) as reusable Avro enums
 - nested `AvroBaseModel` records
 - nullable `T | None`
 
@@ -85,7 +94,9 @@ Arbitrary factories are not called during schema generation.
 - arbitrary unions beyond `T | None`
 - recursive models
 - decimal/date/time logical types
-- `Literal[...]` inside containers or with non-string / invalid Avro enum symbols
+- anonymous `Literal[...]` inside containers
+- non-string / invalid Avro enum symbols
+- generic type aliases
 - nested record defaults, except empty collections of records
 
 Unsupported schema features raise `AvroSchemaGenerationError`.

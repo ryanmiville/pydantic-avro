@@ -9,6 +9,23 @@ from pydantic import Field
 from pydantic_avro import AvroBaseModel, AvroSchemaGenerationError
 
 
+type OpType = Literal["CREATE", "DELETE"]
+type RenamedOpType = OpType
+type Box[T] = list[T]
+type UserId = int
+type Tags = list[str]
+ImportedOpType = OpType
+PlainAssignmentOpType = Literal["CREATE", "DELETE"]
+
+
+class OpenAlias:
+    type Status = Literal["OPEN"]
+
+
+class ClosedAlias:
+    type Status = Literal["CLOSED"]
+
+
 def field(schema: dict, name: str) -> dict:
     return next(item for item in schema["fields"] if item["name"] == name)
 
@@ -107,6 +124,130 @@ def test_string_literal_field_schema_is_enum() -> None:
     assert kind["type"]["type"] == "enum"
     assert kind["type"]["name"] == "Event_kind_Enum"
     assert kind["type"]["symbols"] == ["CREATED", "DELETED"]
+
+
+def test_named_literal_alias_field_schema_uses_alias_name() -> None:
+    class Event(AvroBaseModel):
+        op_type: OpType
+
+    schema = Event.model_avro_schema()
+    op_type = field(schema, "op_type")
+
+    assert op_type["type"]["type"] == "enum"
+    assert op_type["type"]["name"] == "OpType"
+    assert op_type["type"]["namespace"] == schema["namespace"]
+    assert op_type["type"]["symbols"] == ["CREATE", "DELETE"]
+
+
+def test_reused_named_literal_alias_is_referenced() -> None:
+    class Event(AvroBaseModel):
+        first: OpType
+        second: OpType
+
+    schema = Event.model_avro_schema()
+    first = field(schema, "first")
+    second = field(schema, "second")
+
+    assert first["type"]["type"] == "enum"
+    assert second["type"] == f"{schema['namespace']}.OpType"
+
+
+def test_nullable_named_literal_alias_uses_named_enum() -> None:
+    class Event(AvroBaseModel):
+        op_type: OpType | None = None
+
+    op_type = field(Event.model_avro_schema(), "op_type")
+
+    assert op_type["type"][0] == "null"
+    assert op_type["type"][1]["type"] == "enum"
+    assert op_type["type"][1]["name"] == "OpType"
+    assert op_type["default"] is None
+
+
+def test_named_literal_alias_is_supported_inside_containers() -> None:
+    class Event(AvroBaseModel):
+        ops: list[OpType]
+        by_id: dict[str, OpType]
+
+    schema = Event.model_avro_schema()
+    ops = field(schema, "ops")
+    by_id = field(schema, "by_id")
+
+    assert ops["type"]["items"]["type"] == "enum"
+    assert ops["type"]["items"]["name"] == "OpType"
+    assert by_id["type"]["values"] == f"{schema['namespace']}.OpType"
+
+
+def test_plain_assignment_literal_alias_stays_field_local() -> None:
+    class Event(AvroBaseModel):
+        op_type: PlainAssignmentOpType
+
+    op_type = field(Event.model_avro_schema(), "op_type")
+
+    assert op_type["type"]["name"] == "Event_op_type_Enum"
+
+
+def test_plain_assignment_literal_alias_inside_container_gives_named_alias_guidance() -> None:
+    class Bad(AvroBaseModel):
+        ops: list[PlainAssignmentOpType]
+
+    with pytest.raises(AvroSchemaGenerationError, match="named type alias"):
+        Bad.model_avro_schema()
+
+
+def test_outer_named_literal_alias_name_wins() -> None:
+    class Event(AvroBaseModel):
+        op_type: RenamedOpType
+
+    op_type = field(Event.model_avro_schema(), "op_type")
+
+    assert op_type["type"]["name"] == "RenamedOpType"
+
+
+def test_import_alias_does_not_rename_named_literal_alias() -> None:
+    class Event(AvroBaseModel):
+        op_type: ImportedOpType
+
+    op_type = field(Event.model_avro_schema(), "op_type")
+
+    assert op_type["type"]["name"] == "OpType"
+
+
+def test_named_literal_alias_name_collision_with_different_symbols_is_error() -> None:
+    class Ticket(AvroBaseModel):
+        open_status: OpenAlias.Status
+        closed_status: ClosedAlias.Status
+
+    with pytest.raises(AvroSchemaGenerationError, match="reuses Avro name"):
+        Ticket.model_avro_schema()
+
+
+def test_generic_type_alias_is_rejected() -> None:
+    class Bad(AvroBaseModel):
+        values: Box[int]
+
+    with pytest.raises(AvroSchemaGenerationError, match="generic type alias"):
+        Bad.model_avro_schema()
+
+
+def test_non_literal_type_alias_unwraps_transparently() -> None:
+    class User(AvroBaseModel):
+        id: UserId
+        tags: Tags
+
+    schema = User.model_avro_schema()
+
+    assert field(schema, "id")["type"] == "long"
+    assert field(schema, "tags")["type"] == {"type": "array", "items": "string"}
+
+
+def test_non_literal_type_alias_collection_default_unwraps_transparently() -> None:
+    class User(AvroBaseModel):
+        tags: Tags = ["admin"]
+
+    tags = field(User.model_avro_schema(), "tags")
+
+    assert tags["default"] == ["admin"]
 
 
 def test_single_value_literal_schema_is_one_symbol_enum() -> None:
