@@ -10,6 +10,9 @@ from pydantic import Field, ValidationError, field_validator
 from pydantic_avro import AvroBaseModel, AvroDecimal, AvroDecodeError
 
 
+type Money = Annotated[Decimal, AvroDecimal(precision=12, scale=2)]
+
+
 def test_round_trips_annotated_decimal() -> None:
     class Invoice(AvroBaseModel):
         amount: Annotated[Decimal, AvroDecimal(precision=12, scale=2)]
@@ -17,6 +20,19 @@ def test_round_trips_annotated_decimal() -> None:
     invoice = Invoice(amount=Decimal("123.45"))
 
     assert Invoice.model_validate_avro(invoice.model_dump_avro()) == invoice
+
+
+def test_round_trips_named_decimal_alias_inside_containers() -> None:
+    class InvoiceBatch(AvroBaseModel):
+        amounts: list[Money]
+        totals: dict[str, Money]
+
+    batch = InvoiceBatch(
+        amounts=[Decimal("123.45")],
+        totals={"usd": Decimal("123.45")},
+    )
+
+    assert InvoiceBatch.model_validate_avro(batch.model_dump_avro()) == batch
 
 
 def test_round_trips_primitive_model() -> None:

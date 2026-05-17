@@ -579,18 +579,30 @@ def annotation_with_field_metadata(annotation: Any, metadata: list[Any]) -> Any:
 
 
 def parse_avro_annotation(annotation: Any, *, path: str) -> ParsedAvroAnnotation:
-    decimal: AvroDecimal | None = None
-    while get_origin(annotation) is Annotated:
+    if get_origin(annotation) is Annotated:
         args = get_args(annotation)
-        annotation = args[0]
+        parsed = parse_avro_annotation(args[0], path=path)
+        decimal = parsed.decimal
         for metadata in args[1:]:
             if isinstance(metadata, AvroDecimal):
-                if decimal is not None:
-                    raise AvroSchemaGenerationError(
-                        f"Field '{path}' uses duplicate AvroDecimal metadata"
-                    )
-                decimal = metadata
-    return ParsedAvroAnnotation(annotation=annotation, decimal=decimal)
+                decimal = merge_avro_decimal(decimal, metadata, path=path)
+        return ParsedAvroAnnotation(annotation=parsed.annotation, decimal=decimal)
+
+    parsed_alias = parse_type_alias(annotation, path=path)
+    if isinstance(parsed_alias, TransparentAlias):
+        return parse_avro_annotation(parsed_alias.annotation, path=path)
+
+    return ParsedAvroAnnotation(annotation=annotation)
+
+
+def merge_avro_decimal(
+    current: AvroDecimal | None, incoming: AvroDecimal, *, path: str
+) -> AvroDecimal:
+    if current is not None:
+        raise AvroSchemaGenerationError(
+            f"Field '{path}' uses duplicate AvroDecimal metadata"
+        )
+    return incoming
 
 
 def decimal_schema(metadata: AvroDecimal) -> dict[str, Any]:

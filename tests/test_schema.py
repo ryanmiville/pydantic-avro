@@ -17,6 +17,7 @@ type RenamedOpType = OpType
 type Box[T] = list[T]
 type UserId = int
 type Tags = list[str]
+type Money = Annotated[Decimal, AvroDecimal(precision=12, scale=2)]
 ImportedOpType = OpType
 PlainAssignmentOpType = Literal["CREATE", "DELETE"]
 
@@ -86,6 +87,114 @@ def test_decimal_defaults_are_unsupported() -> None:
         )
 
     with pytest.raises(AvroSchemaGenerationError, match="Decimal Avro default"):
+        Invoice.model_avro_schema()
+
+
+def test_named_decimal_alias_schema_uses_alias_metadata() -> None:
+    class Invoice(AvroBaseModel):
+        amount: Money
+
+    amount = field(Invoice.model_avro_schema(), "amount")
+
+    assert amount["type"] == {
+        "type": "bytes",
+        "logicalType": "decimal",
+        "precision": 12,
+        "scale": 2,
+    }
+
+
+def test_nullable_named_decimal_alias_schema_uses_alias_metadata() -> None:
+    class Invoice(AvroBaseModel):
+        amount: Money | None = None
+
+    amount = field(Invoice.model_avro_schema(), "amount")
+
+    assert amount["type"] == [
+        "null",
+        {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 12,
+            "scale": 2,
+        },
+    ]
+    assert amount["default"] is None
+
+
+def test_decimal_metadata_schema_composes_inside_array() -> None:
+    class InvoiceBatch(AvroBaseModel):
+        amounts: list[Money]
+
+    amounts = field(InvoiceBatch.model_avro_schema(), "amounts")
+
+    assert amounts["type"] == {
+        "type": "array",
+        "items": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 12,
+            "scale": 2,
+        },
+    }
+
+
+def test_decimal_metadata_schema_composes_inside_map() -> None:
+    class InvoiceLedger(AvroBaseModel):
+        amounts: dict[str, Money]
+
+    amounts = field(InvoiceLedger.model_avro_schema(), "amounts")
+
+    assert amounts["type"] == {
+        "type": "map",
+        "values": {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 12,
+            "scale": 2,
+        },
+    }
+
+
+def test_non_avro_annotated_metadata_is_ignored() -> None:
+    class Invoice(AvroBaseModel):
+        amount: Annotated[Decimal, "other-consumer", AvroDecimal(precision=12, scale=2)]
+
+    amount = field(Invoice.model_avro_schema(), "amount")
+
+    assert amount["type"] == {
+        "type": "bytes",
+        "logicalType": "decimal",
+        "precision": 12,
+        "scale": 2,
+    }
+
+
+def test_duplicate_decimal_metadata_is_rejected() -> None:
+    class Invoice(AvroBaseModel):
+        amount: Annotated[
+            Decimal,
+            AvroDecimal(precision=12, scale=2),
+            AvroDecimal(precision=12, scale=2),
+        ]
+
+    with pytest.raises(AvroSchemaGenerationError, match="duplicate AvroDecimal"):
+        Invoice.model_avro_schema()
+
+
+def test_conflicting_decimal_metadata_on_alias_is_rejected() -> None:
+    class Invoice(AvroBaseModel):
+        amount: Annotated[Money, AvroDecimal(precision=8, scale=2)]
+
+    with pytest.raises(AvroSchemaGenerationError, match="duplicate AvroDecimal"):
+        Invoice.model_avro_schema()
+
+
+def test_decimal_metadata_on_non_decimal_type_is_rejected() -> None:
+    class Invoice(AvroBaseModel):
+        cents: Annotated[int, AvroDecimal(precision=12, scale=2)]
+
+    with pytest.raises(AvroSchemaGenerationError, match="non-Decimal"):
         Invoice.model_avro_schema()
 
 
