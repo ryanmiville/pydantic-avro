@@ -16,4 +16,4 @@ Add optional support for Confluent/schema-registry wire format while keeping the
 
 ## Blocked by
 
-- `.scratch/avro-feature-roadmap/issues/03-schema-compatibility-checker.md`
+None.
