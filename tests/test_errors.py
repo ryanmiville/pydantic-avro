@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 import pytest
 
 from pydantic_avro import (
@@ -21,7 +19,7 @@ def test_public_exceptions_share_base() -> None:
 
 def test_unsupported_type_error_names_field() -> None:
     class Event(AvroBaseModel):
-        created_at: datetime
+        coordinates: complex
 
-    with pytest.raises(AvroSchemaGenerationError, match="created_at"):
+    with pytest.raises(AvroSchemaGenerationError, match="coordinates"):
         Event.model_avro_schema()

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import types
+from datetime import datetime
 from enum import Enum
 from typing import Any, Union, get_args, get_origin
 
 from pydantic_core import PydanticUndefined
 
+from .errors import AvroEncodeError
 from .schema import (
     avro_field_name,
     enum_value_symbol,
@@ -22,6 +24,7 @@ def to_avro_record(model_cls: type[Any], record: dict[str, Any]) -> dict[str, An
         avro_field_name(python_name, field_info): to_avro_value(
             field_info.annotation,
             record.get(avro_field_name(python_name, field_info), PydanticUndefined),
+            path=avro_field_name(python_name, field_info),
         )
         for python_name, field_info in model_cls.model_fields.items()
         if avro_field_name(python_name, field_info) in record
@@ -45,20 +48,29 @@ def validation_field_name(python_name: str, field_info: Any) -> str:
     return python_name
 
 
-def to_avro_value(annotation: Any, value: Any) -> Any:
+def to_avro_value(annotation: Any, value: Any, *, path: str = "value") -> Any:
     if value is None or value is PydanticUndefined:
         return value
 
     annotation = unwrap_annotated(annotation)
     origin = get_origin(annotation)
     if origin in (Union, types.UnionType):
-        return to_avro_value(non_null_union_arg(annotation), value)
+        return to_avro_value(non_null_union_arg(annotation), value, path=path)
     if origin is list:
         (item_type,) = get_args(annotation)
-        return [to_avro_value(item_type, item) for item in value]
+        return [
+            to_avro_value(item_type, item, path=f"{path}[]") for item in value
+        ]
     if origin is dict:
         _, value_type = get_args(annotation)
-        return {key: to_avro_value(value_type, item) for key, item in value.items()}
+        return {
+            key: to_avro_value(value_type, item, path=f"{path}{{}}")
+            for key, item in value.items()
+        }
+    if annotation is datetime and not is_timezone_aware_datetime(value):
+        raise AvroEncodeError(
+            f"Field '{path}' must be a timezone-aware datetime for Avro timestamp-micros"
+        )
     if isinstance(annotation, type) and issubclass(annotation, Enum):
         enum_value = coerce_enum(annotation, value)
         return enum_value_symbol(enum_value) if enum_values_are_symbols(annotation) else enum_value.name
@@ -96,6 +108,10 @@ def non_null_union_arg(annotation: Any) -> Any:
     if len(non_null) != 1:
         return annotation
     return non_null[0]
+
+
+def is_timezone_aware_datetime(value: Any) -> bool:
+    return isinstance(value, datetime) and value.tzinfo is not None and value.utcoffset() is not None
 
 
 def coerce_enum(enum_cls: type[Enum], value: Any) -> Enum:

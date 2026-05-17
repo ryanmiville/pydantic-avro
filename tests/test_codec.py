@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Annotated, Any, Literal
@@ -9,7 +9,7 @@ from uuid import UUID
 import pytest
 from pydantic import Field, ValidationError, field_validator
 
-from pydantic_avro import AvroBaseModel, AvroDecimal, AvroDecodeError
+from pydantic_avro import AvroBaseModel, AvroDecimal, AvroDecodeError, AvroEncodeError
 
 
 type Money = Annotated[Decimal, AvroDecimal(precision=12, scale=2)]
@@ -50,6 +50,52 @@ def test_round_trips_date_time_and_uuid_logical_values() -> None:
     )
 
     assert Event.model_validate_avro(event.model_dump_avro()) == event
+
+
+def test_round_trips_aware_datetime_as_utc_timestamp() -> None:
+    class Event(AvroBaseModel):
+        occurred_at: datetime
+
+    event = Event(
+        occurred_at=datetime.fromisoformat("2024-01-02T03:04:05.000006-05:00")
+    )
+
+    decoded = Event.model_validate_avro(event.model_dump_avro())
+
+    assert decoded.occurred_at == datetime(2024, 1, 2, 8, 4, 5, 6, tzinfo=timezone.utc)
+
+
+def test_naive_datetime_encode_fails_clearly() -> None:
+    class Event(AvroBaseModel):
+        occurred_at: datetime
+
+    event = Event(occurred_at=datetime(2024, 1, 2, 3, 4, 5, 6))
+
+    with pytest.raises(AvroEncodeError, match="timezone-aware"):
+        event.model_dump_avro()
+
+
+def test_round_trips_datetime_inside_nullable_array_and_map() -> None:
+    class Event(AvroBaseModel):
+        maybe_occurred_at: datetime | None = None
+        reminders: list[datetime]
+        by_id: dict[str, datetime]
+
+    timestamp = datetime.fromisoformat("2024-01-02T03:04:05.000006-05:00")
+    event = Event(
+        maybe_occurred_at=timestamp,
+        reminders=[timestamp],
+        by_id={"a": timestamp},
+    )
+
+    decoded = Event.model_validate_avro(event.model_dump_avro())
+
+    utc_timestamp = datetime(2024, 1, 2, 8, 4, 5, 6, tzinfo=timezone.utc)
+    assert decoded == Event(
+        maybe_occurred_at=utc_timestamp,
+        reminders=[utc_timestamp],
+        by_id={"a": utc_timestamp},
+    )
 
 
 def test_round_trips_primitive_model() -> None:

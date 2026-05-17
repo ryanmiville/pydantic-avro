@@ -96,6 +96,17 @@ def test_time_schema_is_long_backed_time_micros_logical_type() -> None:
     parse_schema(schema)
 
 
+def test_datetime_schema_is_long_backed_timestamp_micros_logical_type() -> None:
+    class Event(AvroBaseModel):
+        starts_at: datetime
+
+    schema = Event.model_avro_schema()
+    starts_at = field(schema, "starts_at")
+
+    assert starts_at["type"] == {"type": "long", "logicalType": "timestamp-micros"}
+    parse_schema(schema)
+
+
 def test_uuid_schema_is_string_backed_logical_type() -> None:
     class Event(AvroBaseModel):
         event_id: UUID
@@ -130,6 +141,24 @@ def test_date_time_and_uuid_logical_types_compose_through_nullable_array_and_map
     parse_schema(schema)
 
 
+def test_datetime_logical_type_composes_through_nullable_array_and_map() -> None:
+    class Event(AvroBaseModel):
+        maybe_occurred_at: datetime | None = None
+        reminders: list[datetime]
+        by_id: dict[str, datetime]
+
+    schema = Event.model_avro_schema()
+
+    timestamp_schema = {"type": "long", "logicalType": "timestamp-micros"}
+    assert field(schema, "maybe_occurred_at")["type"] == ["null", timestamp_schema]
+    assert field(schema, "reminders")["type"] == {
+        "type": "array",
+        "items": timestamp_schema,
+    }
+    assert field(schema, "by_id")["type"] == {"type": "map", "values": timestamp_schema}
+    parse_schema(schema)
+
+
 def test_date_default_emits_days_since_unix_epoch() -> None:
     class Event(AvroBaseModel):
         starts_on: date = date(1970, 1, 3)
@@ -146,6 +175,25 @@ def test_time_default_emits_microseconds_since_midnight() -> None:
     starts_at = field(Event.model_avro_schema(), "starts_at")
 
     assert starts_at["default"] == 3_723_000_004
+
+
+def test_datetime_default_emits_microseconds_since_unix_epoch() -> None:
+    class Event(AvroBaseModel):
+        occurred_at: datetime = datetime.fromisoformat(
+            "2024-01-02T03:04:05.000006-05:00"
+        )
+
+    occurred_at = field(Event.model_avro_schema(), "occurred_at")
+
+    assert occurred_at["default"] == 1_704_182_645_000_006
+
+
+def test_naive_datetime_default_is_rejected() -> None:
+    class Event(AvroBaseModel):
+        occurred_at: datetime = datetime(2024, 1, 2, 3, 4, 5, 6)
+
+    with pytest.raises(AvroSchemaGenerationError, match="timezone-aware"):
+        Event.model_avro_schema()
 
 
 def test_uuid_default_emits_string_value() -> None:

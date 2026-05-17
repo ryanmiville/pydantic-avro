@@ -5,7 +5,7 @@ import inspect
 import re
 import types
 from dataclasses import dataclass, field
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Annotated, Any, Literal, TypeAliasType, Union, get_args, get_origin
@@ -20,6 +20,7 @@ from .metadata import AvroDecimal
 AvroType = str | dict[str, Any] | list[Any]
 _NONE_TYPE = type(None)
 _UNIX_EPOCH_DATE = date(1970, 1, 1)
+_UNIX_EPOCH_DATETIME = datetime(1970, 1, 1, tzinfo=timezone.utc)
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _INVALID_NAME_CHAR_RE = re.compile(r"[^A-Za-z0-9_]")
 
@@ -200,6 +201,8 @@ class SchemaGenerator:
             return {"type": "int", "logicalType": "date"}
         if annotation is time:
             return {"type": "long", "logicalType": "time-micros"}
+        if annotation is datetime:
+            return {"type": "long", "logicalType": "timestamp-micros"}
         if annotation is UUID:
             return {"type": "string", "logicalType": "uuid"}
         if annotation is Decimal:
@@ -389,6 +392,8 @@ class SchemaGenerator:
             }
         if isinstance(default, Enum):
             return self.enum_symbol(default, path=path)
+        if annotation is datetime and type(default) is datetime:
+            return datetime_to_epoch_micros(default, path=path)
         if annotation is date:
             if type(default) is date:
                 return (default - _UNIX_EPOCH_DATE).days
@@ -636,6 +641,15 @@ def decimal_schema(metadata: AvroDecimal) -> dict[str, Any]:
         "precision": metadata.precision,
         "scale": metadata.scale,
     }
+
+
+def datetime_to_epoch_micros(value: datetime, *, path: str) -> int:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise AvroSchemaGenerationError(
+            f"Field '{path}' has a datetime default that must be timezone-aware"
+        )
+    delta = value.astimezone(timezone.utc) - _UNIX_EPOCH_DATETIME
+    return delta.days * 86_400_000_000 + delta.seconds * 1_000_000 + delta.microseconds
 
 
 def unwrap_annotated(annotation: Any) -> Any:
